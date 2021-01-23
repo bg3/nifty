@@ -18,7 +18,10 @@ cc nifty.c -std=c89 -Os -DNDEBUG -g0 -s -Wall -L/usr/local/lib -lSDL2 -o nifty
 * Saving canvas as editable tile data
 * Exporting canvas as image
 * Highlight currently selected character
-* Preview current tile/colours under mouse in canvas area
+* ~~Preview current tile/colours under mouse in canvas area~~
+* ~~Preview current colours in character set area~~
+* Resizing canvas
+* Some sort of quirky animation or sound
 * Keyboard commands:
   * Erase
   * Switch fg/bg colour
@@ -41,6 +44,9 @@ Feedback welcome. The code needs a clean up, but I'll work on that once I've fig
 * Right click - colour 1 (bg)
 * Shift-left click - colour 4
 * Shift-right click - colour 3
+
+### Misc
+* P - preview entire char set with current palette selections
 
 ## Acknowledgments
 

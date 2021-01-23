@@ -1,26 +1,22 @@
 #include <SDL2/SDL.h>
 #include <stdio.h>
 
-#define HOR 16
-#define VER 16
+#define SET_HOR 16
+#define SET_VER 16
+#define GUTTER 2
 #define PAD 2
-#define SZ (HOR * VER * 16)
+#define CHR_SIZE 8
+#define MAP_HOR 48
+#define MAP_VER 32
 
-int WIDTH = 2 * 8 * HOR + 8 * PAD * 2.5;
-int HEIGHT = 8 * (VER + 2) + 8 * PAD * 2;
-int FPS = 30, GUIDES = 1, BIGPIXEL = 0, ZOOM = 2;
+int WIDTH = (PAD + SET_HOR + GUTTER + MAP_HOR + PAD) * CHR_SIZE;
+int HEIGHT = (PAD + MAP_VER + PAD + PAD) * CHR_SIZE;
+int FPS = 30, ZOOM = 2;
 
 SDL_Window *gWindow;
 SDL_Renderer *gRenderer;
 SDL_Texture *gTexture;
 Uint32 *pixels;
-
-Uint32 theme[] = {
-  0xdddddd,
-  0x333333,
-  0x666666,
-  0x999999
-};
 
 Uint32 palette[] = {
   0xf5f4eb,
@@ -38,41 +34,32 @@ Uint32 palette[] = {
   0xe9d8a1,
   0x216c4b,
   0xd365c8,
-  0xdddddd
-/*  0xafaab9*/
+  0xafaab9,
+  /* system palette from here */
+  0xdddddd,
+  0x333333,
+  0x666666,
+  0x999999
 };
 
 typedef struct Brush {
   int x, y;
   int left, right, lshift, rshift;
+  int canvas_hover;
+  int colour_chrset;
   Uint8 chr;
-  int palette[4];
+  int pal[4];
 } Brush;
 
 Brush brush;
 
-Uint8 chrset[16 * 16 * 8 * 2];
-Uint8 chrmap[HOR * VER];
-int chrclrs[HOR * VER * 4];
-
-void randmap() {
-	int x, y, r;
-	for (y = 0; y < VER; ++y) {
-		for (x = 0; x < HOR; ++x) {
-			r = rand() % 3;
-			if (r == 0) {
-				r = rand() % 256;
-				chrmap[x + y * HOR] = r;
-			} else {
-				chrmap[x + y * HOR] = 0;
-			}
-		}
-	}
-}
+Uint8 chrset[SET_HOR * SET_VER * CHR_SIZE * 2]; /* 4 colour tile represented by 16 bits */
+Uint8 chrmap[MAP_HOR * MAP_VER];
+int   chrclr[MAP_HOR * MAP_VER * 4];
 
 int pal_index_at(int x, int y, int channel) {
-  int n = x * 4 + y * HOR * 4 + channel;
-  return chrclrs[n];
+  int n = x * 4 + y * MAP_HOR * 4 + channel;
+  return chrclr[n];
 }
 
 Uint32 clr(int x, int y, int channel) {
@@ -80,7 +67,7 @@ Uint32 clr(int x, int y, int channel) {
 }
 
 void setclr(int x, int y, int channel, int pal_index) {
-  chrclrs[x * 4 + y * HOR * 4 + channel] = pal_index;
+  chrclr[x * 4 + y * MAP_HOR * 4 + channel] = pal_index;
 }
 
 int error(char *msg, const char *err) {
@@ -104,37 +91,47 @@ void clear(Uint32 *dst) {
 	int v, h;
 	for(v = 0; v < HEIGHT; v++)
 		for(h = 0; h < WIDTH; h++)
-			dst[v * WIDTH + h] = theme[0];
+			dst[v * WIDTH + h] = palette[16];
+}
+
+void clearmap() {
+  int x, y;
+  for (y = 0; y < MAP_VER; ++y) {
+    for (x = 0; x < MAP_HOR; ++x) {
+      chrmap[x + y * MAP_HOR] = 0;
+    }
+  }
 }
 
 void liftchr() {
-   brush.chr = chrmap[brush.x + brush.y * HOR];
+   brush.chr = chrmap[brush.x + brush.y * MAP_HOR];
 }
 
 void dropchr() {
-   chrmap[brush.x + brush.y * HOR] = brush.chr;
+   chrmap[brush.x + brush.y * MAP_HOR] = brush.chr;
 }
 
 void liftclr() {
-  int index = brush.x * 4 + brush.y * HOR * 4;
+  int index = brush.x * 4 + brush.y * MAP_HOR * 4;
   int ch;
   for (ch = 0; ch < 4; ++ch)
-    brush.palette[ch] = chrclrs[index + ch];
+    brush.pal[ch] = chrclr[index + ch];
 }
 
 void dropclr() {
-  int index = brush.x * 4 + brush.y * HOR * 4;
+  int index = brush.x * 4 + brush.y * MAP_HOR * 4;
   int ch;
   for (ch = 0; ch < 4; ++ch)
-    chrclrs[index + ch] = brush.palette[ch];
+    chrclr[index + ch] = brush.pal[ch];
 }
 
-void putpixel(Uint32 *dst, int x, int y, Uint32 color) {
+void putpixel(Uint32 *dst, int x, int y, Uint32 colour) {
 	if(x >= 0 && x < WIDTH - 8 && y >= 0 && y < HEIGHT - 8)
-		dst[(y + PAD * 8) * WIDTH + (x + PAD * 8)] = color; 
+		dst[(y + PAD * CHR_SIZE) * WIDTH + (x + PAD * CHR_SIZE)] = colour; 
 }
 
-void drawchr(Uint32 *dst, int x, int y, int id) {
+void drawchr_window(Uint32 *dst, int x, int y, int id, int colmode) {
+  /* colmode: 0 = use chrclr[], 1 = use current brush palette, 2 = use system colours */
 	int v, h, offset = id * 16;
 	for(v = 0; v < 8; v++)
 		for(h = 0; h < 8; h++) {
@@ -143,23 +140,26 @@ void drawchr(Uint32 *dst, int x, int y, int id) {
 			int ch1 = chrset[offset + v];
 			int ch2 = chrset[offset + v + 8];
 			int channel = ((ch1 >> h) & 0x1) + (((ch2 >> h) & 0x1) << 1);
-      Uint32 color = clr(x - HOR - 1, y, channel);
-			putpixel(dst, px - 1, py, color);
+      Uint32 colour;
+      switch (colmode) {
+      case 0:
+        colour = clr(x - SET_HOR - GUTTER, y, channel);
+        break;
+      case 1:
+        colour = palette[brush.pal[channel]];
+        break;
+      case 2:
+        colour = palette[16 + channel];
+        break;
+      }
+			putpixel(dst, px - 1, py, colour);
 		}
 }
 
-void drawchr_ui(Uint32 *dst, int x, int y, int id) {
-	int v, h, offset = id * 16;
-	for(v = 0; v < 8; v++)
-		for(h = 0; h < 8; h++) {
-			int px = (x * 8) + (8 - h);
-			int py = (y * 8) + v;
-			int ch1 = chrset[offset + v];
-			int ch2 = chrset[offset + v + 8];
-			int clr_index = ((ch1 >> h) & 0x1) + (((ch2 >> h) & 0x1) << 1);
-      Uint32 color = theme[clr_index];
-			putpixel(dst, px - 1, py, color);
-		}
+void drawchr_canvas(Uint32 *dst, int x, int y, int id, int colmode) {
+  int mv_x;
+  mv_x = SET_HOR + GUTTER + x;
+  drawchr_window(dst, mv_x, y, id, colmode);
 }
 
 void drawchr_ui_pal(Uint32 *dst, int x, int y, int id, int c0, int c1, int c2, int c3) {
@@ -172,8 +172,8 @@ void drawchr_ui_pal(Uint32 *dst, int x, int y, int id, int c0, int c1, int c2, i
 			int ch2 = chrset[offset + v + 8];
 			int clr_index = ((ch1 >> h) & 0x1) + (((ch2 >> h) & 0x1) << 1);
       clr_index = clr_index == 0 ? c0 : clr_index == 1 ? c1 : clr_index == 2 ? c2 : c3;
-      Uint32 color = palette[clr_index];
-			putpixel(dst, px - 1, py, color);
+      Uint32 colour = palette[clr_index];
+			putpixel(dst, px - 1, py, colour);
 		}
 }
 
@@ -185,52 +185,59 @@ void drawchr_ui_theme(Uint32 *dst, int x, int y, int id, int c0, int c1, int c2,
 			int py = (y * 8) + v;
 			int ch1 = chrset[offset + v];
 			int ch2 = chrset[offset + v + 8];
-			int clr_index = ((ch1 >> h) & 0x1) + (((ch2 >> h) & 0x1) << 1);
-      clr_index = clr_index == 0 ? c0 : clr_index == 1 ? c1 : clr_index == 2 ? c2 : c3;
-      Uint32 color = theme[clr_index];
-			putpixel(dst, px - 1, py, color);
+			int channel = ((ch1 >> h) & 0x1) + (((ch2 >> h) & 0x1) << 1);
+      channel = channel == 0 ? c0 : channel == 1 ? c1 : channel == 2 ? c2 : c3;
+      Uint32 colour = palette[16 + channel];
+			putpixel(dst, px - 1, py, colour);
 		}
 }
 
 void drawui(Uint32 *dst) {
-  drawchr_ui_pal(dst, 17, VER + 1, brush.chr, brush.palette[0], brush.palette[1], brush.palette[2], brush.palette[3]); 
+  /* draw current character + colour */
+  drawchr_window(dst, SET_HOR + GUTTER, MAP_VER + 1, brush.chr, 1);
 
-  drawchr_ui_pal(dst, 0, VER + 1, 219, 0, 0, 0, 0);
-  drawchr_ui_pal(dst, 1, VER + 1, 219, 0, 1, 0, 0);
-  drawchr_ui_pal(dst, 2, VER + 1, 219, 0, 2, 0, 0);
-  drawchr_ui_pal(dst, 3, VER + 1, 219, 0, 3, 0, 0);
-  drawchr_ui_pal(dst, 4, VER + 1, 219, 0, 4, 0, 0);
-  drawchr_ui_pal(dst, 5, VER + 1, 219, 0, 5, 0, 0);
-  drawchr_ui_pal(dst, 6, VER + 1, 219, 0, 6, 0, 0);
-  drawchr_ui_pal(dst, 7, VER + 1, 219, 0, 7, 0, 0);
-  drawchr_ui_pal(dst, 8, VER + 1, 219, 0, 8, 0, 0);
-  drawchr_ui_pal(dst, 9, VER + 1, 219, 0, 9, 0, 0);
-  drawchr_ui_pal(dst, 10, VER + 1, 219, 0, 10, 0, 0);
-  drawchr_ui_pal(dst, 11, VER + 1, 219, 0, 11, 0, 0);
-  drawchr_ui_pal(dst, 12, VER + 1, 219, 0, 12, 0, 0);
-  drawchr_ui_pal(dst, 13, VER + 1, 219, 0, 13, 0, 0);
-  drawchr_ui_pal(dst, 14, VER + 1, 219, 0, 14, 0, 0);
-  drawchr_ui_pal(dst, 15, VER + 1, 219, 0, 15, 0, 0);
- 
-  drawchr_ui_theme(dst, brush.palette[0], VER + 2, 49, 0, 3, 0, 0);
-  drawchr_ui_theme(dst, brush.palette[1], VER + 2, 50, 1, 0, 0, 0);
-  drawchr_ui_theme(dst, brush.palette[2], VER + 2, 51, 2, 0, 0, 0);
-  drawchr_ui_theme(dst, brush.palette[3], VER + 2, 52, 3, 0, 0, 0);
+  /* draw palette */
+  drawchr_ui_pal(dst, 0, SET_VER + 1, 219, 0, 0, 0, 0);
+  drawchr_ui_pal(dst, 1, SET_VER + 1, 219, 0, 1, 0, 0);
+  drawchr_ui_pal(dst, 2, SET_VER + 1, 219, 0, 2, 0, 0);
+  drawchr_ui_pal(dst, 3, SET_VER + 1, 219, 0, 3, 0, 0);
+  drawchr_ui_pal(dst, 4, SET_VER + 1, 219, 0, 4, 0, 0);
+  drawchr_ui_pal(dst, 5, SET_VER + 1, 219, 0, 5, 0, 0);
+  drawchr_ui_pal(dst, 6, SET_VER + 1, 219, 0, 6, 0, 0);
+  drawchr_ui_pal(dst, 7, SET_VER + 1, 219, 0, 7, 0, 0);
+  drawchr_ui_pal(dst, 8, SET_VER + 1, 219, 0, 8, 0, 0);
+  drawchr_ui_pal(dst, 9, SET_VER + 1, 219, 0, 9, 0, 0);
+  drawchr_ui_pal(dst, 10, SET_VER + 1, 219, 0, 10, 0, 0);
+  drawchr_ui_pal(dst, 11, SET_VER + 1, 219, 0, 11, 0, 0);
+  drawchr_ui_pal(dst, 12, SET_VER + 1, 219, 0, 12, 0, 0);
+  drawchr_ui_pal(dst, 13, SET_VER + 1, 219, 0, 13, 0, 0);
+  drawchr_ui_pal(dst, 14, SET_VER + 1, 219, 0, 14, 0, 0);
+  drawchr_ui_pal(dst, 15, SET_VER + 1, 219, 0, 15, 0, 0);
+
+  /* draw numbers 1-4 under palette */
+  drawchr_window(dst, brush.pal[0], SET_VER + 2, 49, 2);
+  drawchr_window(dst, brush.pal[1], SET_VER + 2, 50, 2);
+  drawchr_window(dst, brush.pal[2], SET_VER + 2, 51, 2);
+  drawchr_window(dst, brush.pal[3], SET_VER + 2, 52, 2);
+
+  /* draw brush */
+  if (brush.canvas_hover) drawchr_canvas(pixels, brush.x, brush.y, brush.chr, 1); 
 }
 
 void redraw(Uint32 *dst) {
 	int x, y;
 	clear(dst);
+
+	for(y = 0; y < SET_VER; ++y)
+		for(x = 0; x < SET_HOR; ++x)
+			drawchr_window(dst, x, y, x + y * SET_HOR, brush.colour_chrset ? 1 : 2);
+
+	for(y = 0; y < MAP_VER; ++y)
+		for(x = 0; x < MAP_HOR; ++x)
+			drawchr_canvas(dst, x, y, chrmap[x + y * MAP_HOR], 0);
+
   drawui(dst);
-
-	for(y = 0; y < VER; ++y)
-		for(x = 0; x < HOR; ++x)
-			drawchr_ui(dst, x, y, x + y * HOR);
-
-	for(y = 0; y < VER; ++y)
-		for(x = 0; x < HOR; ++x)
-			drawchr(dst, HOR + x + 1, y, chrmap[x + y * HOR]);
-
+  
 	SDL_UpdateTexture(gTexture, NULL, dst, WIDTH * sizeof(Uint32));
 	SDL_RenderClear(gRenderer);
 	SDL_RenderCopy(gRenderer, gTexture, NULL, NULL);
@@ -247,47 +254,49 @@ void domouse(SDL_Event* event) {
       if (event->button.button == SDL_BUTTON_RIGHT) brush.right = 1;
       if (event->button.button == SDL_BUTTON_LEFT) brush.left = 1;
   case SDL_MOUSEMOTION:
-    /* could convert these into fixed values earlier*/
-    if (event->motion.x > (8 * PAD) * ZOOM &&
-        event->motion.x < (8 * PAD + HOR * 8) * ZOOM &&
-        event->motion.y > (8 * PAD) * ZOOM &&
-        event->motion.y < (8 * PAD + VER * 8) * ZOOM) { 
+    if (event->motion.x > PAD * CHR_SIZE * ZOOM &&
+        event->motion.x < (PAD + SET_HOR) * CHR_SIZE * ZOOM &&
+        event->motion.y > PAD * CHR_SIZE * ZOOM &&
+        event->motion.y < (PAD + SET_VER) * CHR_SIZE * ZOOM) { 
       /* chr */
-      brush.x = (event->motion.x / ZOOM - (8 * PAD)) / 8;
-      brush.y = (event->motion.y / ZOOM - (8 * PAD)) / 8;
+      brush.canvas_hover = 0;
+      brush.x = (event->motion.x / ZOOM - (PAD * CHR_SIZE)) / CHR_SIZE;
+      brush.y = (event->motion.y / ZOOM - (PAD * CHR_SIZE)) / CHR_SIZE;
       if (brush.left) {
-        brush.chr = (brush.x + brush.y * HOR);
+        brush.chr = (brush.x + brush.y * SET_HOR);
       }
-    } else if (event->motion.x > (8 * PAD * 1.5 + HOR * 8) * ZOOM &&
-               event->motion.x < (8 * PAD * 1.5 + 2 * HOR * 8) * ZOOM &&
-               event->motion.y > (8 * PAD) * ZOOM &&
-               event->motion.y < (8 * PAD + VER * 8) * ZOOM) {
+    } else if (event->motion.x > (PAD + SET_HOR + GUTTER) * CHR_SIZE * ZOOM &&
+               event->motion.x < (PAD + SET_HOR + GUTTER + MAP_HOR) * CHR_SIZE * ZOOM &&
+               event->motion.y > PAD * CHR_SIZE * ZOOM &&
+               event->motion.y < (PAD + MAP_VER) * CHR_SIZE * ZOOM) {
+      brush.canvas_hover = 1;
      /* map */
-       brush.x = (event->motion.x / ZOOM - (8 * PAD * 1.5 + HOR * 8)) / 8;
-       brush.y = (event->motion.y / ZOOM - (8 * PAD)) / 8;
+       brush.x = (event->motion.x / ZOOM - (PAD + SET_HOR + GUTTER) * CHR_SIZE) / CHR_SIZE;
+       brush.y = (event->motion.y / ZOOM - PAD * CHR_SIZE) / CHR_SIZE;
        if (brush.left) {
          dropchr();
          dropclr();
-         /* name these drop chr, drop clr and pick chr, pick clr */
        }
        if (brush.right) {
          liftchr();
          liftclr();
        }
-    } else if (event->motion.x > (8 * PAD) * ZOOM &&
-               event->motion.x < (8 * PAD + HOR * 8) * ZOOM &&
-               event->motion.y > (8 * PAD * 1.5 + VER * 8) * ZOOM &&
-               event->motion.y < (8 * PAD * 1.5 + (VER + 1) * 8) * ZOOM) {
-        int hover_colour = (event->motion.x / ZOOM - (8 * PAD)) / 8; 
+    } else if (event->motion.x > PAD * CHR_SIZE * ZOOM &&
+               event->motion.x < (PAD + SET_HOR) * CHR_SIZE * ZOOM &&
+               event->motion.y > (PAD + 1 + SET_VER) * CHR_SIZE * ZOOM &&
+               event->motion.y < (PAD + 2 + SET_VER) * CHR_SIZE * ZOOM) {
+        brush.canvas_hover = 0;
+        int hover_colour = (event->motion.x / ZOOM - PAD * CHR_SIZE) / CHR_SIZE; 
         if (brush.lshift || brush.rshift) {
-          if (brush.left) brush.palette[2] = hover_colour;
-          if (brush.right) brush.palette[3] = hover_colour;
+          if (brush.left) brush.pal[2] = hover_colour;
+          if (brush.right) brush.pal[3] = hover_colour;
         } else {
-          if (brush.left) brush.palette[1] = hover_colour;
-          if (brush.right) brush.palette[0] = hover_colour;
+          if (brush.left) brush.pal[1] = hover_colour;
+          if (brush.right) brush.pal[0] = hover_colour;
         }
     } else {
-      /* outside either */
+      /* outside char set, palette and canvas */
+      brush.canvas_hover = 0;
     }
   }
 }
@@ -333,10 +342,10 @@ int main(int argc, char **argv) {
 	}
 
   brush.chr = 3;
-  brush.palette[0] = 0;
-  brush.palette[1] = 9;
-  brush.palette[2] = 2;
-  brush.palette[3] = 3;
+  brush.pal[0] = 0;
+  brush.pal[1] = 9;
+  brush.pal[2] = 2;
+  brush.pal[3] = 3;
 
 	while (1) {
 		int tick = SDL_GetTicks();
@@ -367,6 +376,10 @@ int main(int argc, char **argv) {
         break;
 			case SDL_KEYUP:
 				switch (event.key.keysym.scancode) {
+        case SDL_SCANCODE_P:
+          brush.colour_chrset = !brush.colour_chrset;
+          redraw(pixels);
+          break;
         case SDL_SCANCODE_LSHIFT:
           brush.lshift = 0;
           break;
@@ -388,12 +401,14 @@ int main(int argc, char **argv) {
 	return 0;
 }
 
-
 /* TODO
- *
- * switch left/right mouse select.
+ * DONE switch left/right mouse select.
  * improve region detection in mouse events.
  * clean up tile/colour interaction, there are a bunch of different functions for drawing in the nametable, out of it, with palette, with theme colours, etc.
- * show tile that will be painted when hovering over the canvas
+ * DONE show tile that will be painted when hovering over the canvas
+ * show hover tile with current brush colours
  * highlight selected tile in chrbuf area
+ * confirm erase, or make it modifier+key
+ * add system char set
+ * reduce memory use for clrmap
  */
