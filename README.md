@@ -3,7 +3,6 @@
 Nifty is a tiny paint tool for tile art. It uses NES/Nasu .chr files as tile data.
 
 ![Screenshot of Nifty](https://raw.githubusercontent.com/bg3/nifty/main/nifty.png)
-
 ## Getting Started
 
 Nifty requires [SDL2](https://wiki.libsdl.org/).

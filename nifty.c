@@ -51,34 +51,20 @@ typedef struct Brush {
 
 Brush brush;
 
-Uint8 icons[][8] = {
-	{0x38, 0x7c, 0xfe, 0xfe, 0xfe, 0x7c, 0x38, 0x00},
-	{0x38, 0x44, 0x82, 0x82, 0x82, 0x44, 0x38, 0x00},
-	{0x02, 0x02, 0x04, 0x38, 0x40, 0x80, 0x80, 0x00},
-	{0x88, 0x00, 0x22, 0x00, 0x88, 0x00, 0x22, 0x00},
-	{0xaa, 0x54, 0xaa, 0x54, 0xaa, 0x54, 0xaa, 0x00},
-	{0x38, 0x7c, 0xee, 0xd6, 0xee, 0x7c, 0x38, 0x00},
-	{0x44, 0xba, 0x44, 0x44, 0x44, 0xba, 0x44, 0x00},
-	{0xaa, 0x00, 0xaa, 0x00, 0xaa, 0x00, 0xaa, 0x00},
-	{0xee, 0xaa, 0xee, 0x00, 0xee, 0xaa, 0xee, 0x00},
-	{0x00, 0x00, 0x00, 0x82, 0x44, 0x38, 0x00, 0x00}, /* eye open */
-	{0x00, 0x38, 0x44, 0x92, 0x28, 0x10, 0x00, 0x00}  /* eye closed */
-};
+Uint8 chrset[16 * 16 * 8 * 2];
+Uint8 chrmap[HOR * VER];
+int chrclrs[HOR * VER * 4];
 
-Uint8 chrbuf[16 * 16 * 8 * 2];
-Uint8 nametable[HOR * VER];
-int colourtable[HOR * VER * 4];
-
-void randnametable() {
+void randmap() {
 	int x, y, r;
 	for (y = 0; y < VER; ++y) {
 		for (x = 0; x < HOR; ++x) {
 			r = rand() % 3;
 			if (r == 0) {
 				r = rand() % 256;
-				nametable[x + y * HOR] = r;
+				chrmap[x + y * HOR] = r;
 			} else {
-				nametable[x + y * HOR] = 0;
+				chrmap[x + y * HOR] = 0;
 			}
 		}
 	}
@@ -86,7 +72,7 @@ void randnametable() {
 
 int pal_index_at(int x, int y, int channel) {
   int n = x * 4 + y * HOR * 4 + channel;
-  return colourtable[n];
+  return chrclrs[n];
 }
 
 Uint32 clr(int x, int y, int channel) {
@@ -94,19 +80,7 @@ Uint32 clr(int x, int y, int channel) {
 }
 
 void setclr(int x, int y, int channel, int pal_index) {
-  colourtable[x * 4 + y * HOR * 4 + channel] = pal_index;
-}
-
-void randcolourtable() {
-	int x, y, channel, r;
-	for (y = 0; y < VER; ++y) {
-		for (x = 0; x < HOR; ++x) {
-      for (channel = 0; channel < 4; ++channel) {
-				r = rand() % 16;
-        setclr(x, y, channel, r);
-			}
-		}
-	}
+  chrclrs[x * 4 + y * HOR * 4 + channel] = pal_index;
 }
 
 int error(char *msg, const char *err) {
@@ -133,18 +107,26 @@ void clear(Uint32 *dst) {
 			dst[v * WIDTH + h] = theme[0];
 }
 
-void dropclr() {
-  int index = brush.x * 4 + brush.y * HOR * 4;
-  int ch;
-  for (ch = 0; ch < 4; ++ch)
-    colourtable[index + ch] = brush.palette[ch];
+void liftchr() {
+   brush.chr = chrmap[brush.x + brush.y * HOR];
+}
+
+void dropchr() {
+   chrmap[brush.x + brush.y * HOR] = brush.chr;
 }
 
 void liftclr() {
   int index = brush.x * 4 + brush.y * HOR * 4;
   int ch;
   for (ch = 0; ch < 4; ++ch)
-    brush.palette[ch] = colourtable[index + ch];
+    brush.palette[ch] = chrclrs[index + ch];
+}
+
+void dropclr() {
+  int index = brush.x * 4 + brush.y * HOR * 4;
+  int ch;
+  for (ch = 0; ch < 4; ++ch)
+    chrclrs[index + ch] = brush.palette[ch];
 }
 
 void putpixel(Uint32 *dst, int x, int y, Uint32 color) {
@@ -158,8 +140,8 @@ void drawchr(Uint32 *dst, int x, int y, int id) {
 		for(h = 0; h < 8; h++) {
 			int px = (x * 8) + (8 - h);
 			int py = (y * 8) + v;
-			int ch1 = chrbuf[offset + v];
-			int ch2 = chrbuf[offset + v + 8];
+			int ch1 = chrset[offset + v];
+			int ch2 = chrset[offset + v + 8];
 			int channel = ((ch1 >> h) & 0x1) + (((ch2 >> h) & 0x1) << 1);
       Uint32 color = clr(x - HOR - 1, y, channel);
 			putpixel(dst, px - 1, py, color);
@@ -172,8 +154,8 @@ void drawchr_ui(Uint32 *dst, int x, int y, int id) {
 		for(h = 0; h < 8; h++) {
 			int px = (x * 8) + (8 - h);
 			int py = (y * 8) + v;
-			int ch1 = chrbuf[offset + v];
-			int ch2 = chrbuf[offset + v + 8];
+			int ch1 = chrset[offset + v];
+			int ch2 = chrset[offset + v + 8];
 			int clr_index = ((ch1 >> h) & 0x1) + (((ch2 >> h) & 0x1) << 1);
       Uint32 color = theme[clr_index];
 			putpixel(dst, px - 1, py, color);
@@ -186,8 +168,8 @@ void drawchr_ui_pal(Uint32 *dst, int x, int y, int id, int c0, int c1, int c2, i
 		for(h = 0; h < 8; h++) {
 			int px = (x * 8) + (8 - h);
 			int py = (y * 8) + v;
-			int ch1 = chrbuf[offset + v];
-			int ch2 = chrbuf[offset + v + 8];
+			int ch1 = chrset[offset + v];
+			int ch2 = chrset[offset + v + 8];
 			int clr_index = ((ch1 >> h) & 0x1) + (((ch2 >> h) & 0x1) << 1);
       clr_index = clr_index == 0 ? c0 : clr_index == 1 ? c1 : clr_index == 2 ? c2 : c3;
       Uint32 color = palette[clr_index];
@@ -201,8 +183,8 @@ void drawchr_ui_theme(Uint32 *dst, int x, int y, int id, int c0, int c1, int c2,
 		for(h = 0; h < 8; h++) {
 			int px = (x * 8) + (8 - h);
 			int py = (y * 8) + v;
-			int ch1 = chrbuf[offset + v];
-			int ch2 = chrbuf[offset + v + 8];
+			int ch1 = chrset[offset + v];
+			int ch2 = chrset[offset + v + 8];
 			int clr_index = ((ch1 >> h) & 0x1) + (((ch2 >> h) & 0x1) << 1);
       clr_index = clr_index == 0 ? c0 : clr_index == 1 ? c1 : clr_index == 2 ? c2 : c3;
       Uint32 color = theme[clr_index];
@@ -211,7 +193,7 @@ void drawchr_ui_theme(Uint32 *dst, int x, int y, int id, int c0, int c1, int c2,
 }
 
 void drawui(Uint32 *dst) {
-  drawchr_ui(dst, 17, VER + 1, brush.chr);
+  drawchr_ui_pal(dst, 17, VER + 1, brush.chr, brush.palette[0], brush.palette[1], brush.palette[2], brush.palette[3]); 
 
   drawchr_ui_pal(dst, 0, VER + 1, 219, 0, 0, 0, 0);
   drawchr_ui_pal(dst, 1, VER + 1, 219, 0, 1, 0, 0);
@@ -247,7 +229,7 @@ void redraw(Uint32 *dst) {
 
 	for(y = 0; y < VER; ++y)
 		for(x = 0; x < HOR; ++x)
-			drawchr(dst, HOR + x + 1, y, nametable[x + y * HOR]);
+			drawchr(dst, HOR + x + 1, y, chrmap[x + y * HOR]);
 
 	SDL_UpdateTexture(gTexture, NULL, dst, WIDTH * sizeof(Uint32));
 	SDL_RenderClear(gRenderer);
@@ -284,12 +266,12 @@ void domouse(SDL_Event* event) {
        brush.x = (event->motion.x / ZOOM - (8 * PAD * 1.5 + HOR * 8)) / 8;
        brush.y = (event->motion.y / ZOOM - (8 * PAD)) / 8;
        if (brush.left) {
-         nametable[brush.x + brush.y * HOR] = brush.chr;
+         dropchr();
          dropclr();
          /* name these drop chr, drop clr and pick chr, pick clr */
        }
        if (brush.right) {
-         brush.chr = nametable[brush.x + brush.y * HOR];
+         liftchr();
          liftclr();
        }
     } else if (event->motion.x > (8 * PAD) * ZOOM &&
@@ -298,8 +280,8 @@ void domouse(SDL_Event* event) {
                event->motion.y < (8 * PAD * 1.5 + (VER + 1) * 8) * ZOOM) {
         int hover_colour = (event->motion.x / ZOOM - (8 * PAD)) / 8; 
         if (brush.lshift || brush.rshift) {
-          if (brush.left) brush.palette[3] = hover_colour;
-          if (brush.right) brush.palette[4] = hover_colour;
+          if (brush.left) brush.palette[2] = hover_colour;
+          if (brush.right) brush.palette[3] = hover_colour;
         } else {
           if (brush.left) brush.palette[1] = hover_colour;
           if (brush.right) brush.palette[0] = hover_colour;
@@ -342,7 +324,7 @@ int init(void) {
 int main(int argc, char **argv) {
 	FILE *fp;
 	fp = fopen("spectrum-pi.chr", "r");
-	fread(chrbuf, sizeof(chrbuf), 1, fp);
+	fread(chrset, sizeof(chrset), 1, fp);
 
 	int ticknext = 0;
 
@@ -350,14 +332,11 @@ int main(int argc, char **argv) {
 		return error("Init", "Failure");
 	}
 
-  brush.chr = 255;
-  brush.palette[0] = 3;
-  brush.palette[1] = 5;
-  brush.palette[2] = 7;
-  brush.palette[3] = 1;
-
-	randnametable();
-  //randcolourtable();
+  brush.chr = 3;
+  brush.palette[0] = 0;
+  brush.palette[1] = 9;
+  brush.palette[2] = 2;
+  brush.palette[3] = 3;
 
 	while (1) {
 		int tick = SDL_GetTicks();
@@ -376,10 +355,6 @@ int main(int argc, char **argv) {
           break;
 			case SDL_KEYDOWN:
 				switch (event.key.keysym.scancode) {
-				case SDL_SCANCODE_R:
-					randnametable();
-					redraw(pixels);
-					break;
         case SDL_SCANCODE_LSHIFT:
           brush.lshift = 1;
           break;
