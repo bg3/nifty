@@ -38,7 +38,8 @@ Uint32 palette[] = {
   0xe9d8a1,
   0x216c4b,
   0xd365c8,
-  0xafaab9
+  0xdddddd
+/*  0xafaab9*/
 };
 
 typedef struct Brush {
@@ -297,11 +298,11 @@ void domouse(SDL_Event* event) {
                event->motion.y < (8 * PAD * 1.5 + (VER + 1) * 8) * ZOOM) {
         int hover_colour = (event->motion.x / ZOOM - (8 * PAD)) / 8; 
         if (brush.lshift || brush.rshift) {
-          if (brush.left) brush.palette[2] = hover_colour;
-          if (brush.right) brush.palette[3] = hover_colour;
+          if (brush.left) brush.palette[3] = hover_colour;
+          if (brush.right) brush.palette[4] = hover_colour;
         } else {
-          if (brush.left) brush.palette[0] = hover_colour;
-          if (brush.right) brush.palette[1] = hover_colour;
+          if (brush.left) brush.palette[1] = hover_colour;
+          if (brush.right) brush.palette[0] = hover_colour;
         }
     } else {
       /* outside either */
@@ -415,6 +416,7 @@ int main(int argc, char **argv) {
 
 /* TODO
  *
+ * switch left/right mouse select.
  * improve region detection in mouse events.
  * clean up tile/colour interaction, there are a bunch of different functions for drawing in the nametable, out of it, with palette, with theme colours, etc.
  * show tile that will be painted when hovering over the canvas
