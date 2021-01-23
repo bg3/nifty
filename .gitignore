@@ -50,3 +50,8 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+*.swp
+nifty
+nifty 2
+.nifty.c.swp
+nifty
