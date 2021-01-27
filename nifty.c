@@ -3,11 +3,13 @@
 
 #define SET_HOR 16
 #define SET_VER 16
-#define GUTTER 2
+#define GUTTER 1
 #define PAD 2
 #define CHR_SIZE 8
 #define MAP_HOR 48
 #define MAP_VER 32
+/* 11 x 26 map = 512x512 window
+ * 48 x 32 */
 
 int WIDTH = (PAD + SET_HOR + GUTTER + MAP_HOR + PAD) * CHR_SIZE;
 int HEIGHT = (PAD + MAP_VER + PAD + PAD) * CHR_SIZE;
@@ -20,11 +22,11 @@ Uint32 *pixels;
 
 Uint32 palette[] = {
   0xf5f4eb,
-	0x000000,
-	0x191028,
-	0x46AF45,
-	0xa1d685,
-	0x453e78,
+  0x000000,
+  0x191028,
+  0x46AF45,
+  0xa1d685,
+  0x453e78,
   0x7664fe,
   0x833129,
   0x9ec2e8,
@@ -57,34 +59,9 @@ Uint8 chrset[SET_HOR * SET_VER * CHR_SIZE * 2]; /* 4 colour tile represented by 
 Uint8 chrmap[MAP_HOR * MAP_VER];
 int   chrclr[MAP_HOR * MAP_VER * 4];
 
-int pal_index_at(int x, int y, int channel) {
-  int n = x * 4 + y * MAP_HOR * 4 + channel;
-  return chrclr[n];
-}
-
-Uint32 clr(int x, int y, int channel) {
-  return palette[pal_index_at(x, y, channel)];
-}
-
-void setclr(int x, int y, int channel, int pal_index) {
-  chrclr[x * 4 + y * MAP_HOR * 4 + channel] = pal_index;
-}
-
 int error(char *msg, const char *err) {
 	printf("Error %s: %s\n", msg, err);
 	return 0;
-}
-
-void quit(void) {
-	free(pixels);
-	SDL_DestroyTexture(gTexture);
-	gTexture = NULL;
-	SDL_DestroyRenderer(gRenderer);
-	gRenderer = NULL;
-	SDL_DestroyWindow(gWindow);
-	gWindow = NULL;
-	SDL_Quit();
-	exit(0);
 }
 
 void clear(Uint32 *dst) {
@@ -94,40 +71,18 @@ void clear(Uint32 *dst) {
 			dst[v * WIDTH + h] = palette[16];
 }
 
-void clearmap() {
-  int x, y;
-  for (y = 0; y < MAP_VER; ++y) {
-    for (x = 0; x < MAP_HOR; ++x) {
-      chrmap[x + y * MAP_HOR] = 0;
-    }
-  }
-}
-
-void liftchr() {
-   brush.chr = chrmap[brush.x + brush.y * MAP_HOR];
-}
-
-void dropchr() {
-   chrmap[brush.x + brush.y * MAP_HOR] = brush.chr;
-}
-
-void liftclr() {
-  int index = brush.x * 4 + brush.y * MAP_HOR * 4;
-  int ch;
-  for (ch = 0; ch < 4; ++ch)
-    brush.pal[ch] = chrclr[index + ch];
-}
-
-void dropclr() {
-  int index = brush.x * 4 + brush.y * MAP_HOR * 4;
-  int ch;
-  for (ch = 0; ch < 4; ++ch)
-    chrclr[index + ch] = brush.pal[ch];
-}
-
 void putpixel(Uint32 *dst, int x, int y, Uint32 colour) {
 	if(x >= 0 && x < WIDTH - 8 && y >= 0 && y < HEIGHT - 8)
-		dst[(y + PAD * CHR_SIZE) * WIDTH + (x + PAD * CHR_SIZE)] = colour; 
+		dst[(y + PAD * CHR_SIZE) * WIDTH + (x + PAD * CHR_SIZE)] = colour;
+}
+
+int pal_index_at(int x, int y, int channel) {
+  int n = x * 4 + y * MAP_HOR * 4 + channel;
+  return chrclr[n];
+}
+
+Uint32 clr(int x, int y, int channel) {
+  return palette[pal_index_at(x, y, channel)];
 }
 
 void drawchr_window(Uint32 *dst, int x, int y, int id, int colmode) {
@@ -162,7 +117,7 @@ void drawchr_canvas(Uint32 *dst, int x, int y, int id, int colmode) {
   drawchr_window(dst, mv_x, y, id, colmode);
 }
 
-void drawchr_ui_pal(Uint32 *dst, int x, int y, int id, int c0, int c1, int c2, int c3) {
+void drawpal_window(Uint32 *dst, int x, int y, int id, int c0, int c1, int c2, int c3) {
 	int v, h, offset = id * 16;
 	for(v = 0; v < 8; v++)
 		for(h = 0; h < 8; h++) {
@@ -177,42 +132,27 @@ void drawchr_ui_pal(Uint32 *dst, int x, int y, int id, int c0, int c1, int c2, i
 		}
 }
 
-void drawchr_ui_theme(Uint32 *dst, int x, int y, int id, int c0, int c1, int c2, int c3) {
-	int v, h, offset = id * 16;
-	for(v = 0; v < 8; v++)
-		for(h = 0; h < 8; h++) {
-			int px = (x * 8) + (8 - h);
-			int py = (y * 8) + v;
-			int ch1 = chrset[offset + v];
-			int ch2 = chrset[offset + v + 8];
-			int channel = ((ch1 >> h) & 0x1) + (((ch2 >> h) & 0x1) << 1);
-      channel = channel == 0 ? c0 : channel == 1 ? c1 : channel == 2 ? c2 : c3;
-      Uint32 colour = palette[16 + channel];
-			putpixel(dst, px - 1, py, colour);
-		}
-}
-
 void drawui(Uint32 *dst) {
   /* draw current character + colour */
   drawchr_window(dst, SET_HOR + GUTTER, MAP_VER + 1, brush.chr, 1);
 
   /* draw palette */
-  drawchr_ui_pal(dst, 0, SET_VER + 1, 219, 0, 0, 0, 0);
-  drawchr_ui_pal(dst, 1, SET_VER + 1, 219, 0, 1, 0, 0);
-  drawchr_ui_pal(dst, 2, SET_VER + 1, 219, 0, 2, 0, 0);
-  drawchr_ui_pal(dst, 3, SET_VER + 1, 219, 0, 3, 0, 0);
-  drawchr_ui_pal(dst, 4, SET_VER + 1, 219, 0, 4, 0, 0);
-  drawchr_ui_pal(dst, 5, SET_VER + 1, 219, 0, 5, 0, 0);
-  drawchr_ui_pal(dst, 6, SET_VER + 1, 219, 0, 6, 0, 0);
-  drawchr_ui_pal(dst, 7, SET_VER + 1, 219, 0, 7, 0, 0);
-  drawchr_ui_pal(dst, 8, SET_VER + 1, 219, 0, 8, 0, 0);
-  drawchr_ui_pal(dst, 9, SET_VER + 1, 219, 0, 9, 0, 0);
-  drawchr_ui_pal(dst, 10, SET_VER + 1, 219, 0, 10, 0, 0);
-  drawchr_ui_pal(dst, 11, SET_VER + 1, 219, 0, 11, 0, 0);
-  drawchr_ui_pal(dst, 12, SET_VER + 1, 219, 0, 12, 0, 0);
-  drawchr_ui_pal(dst, 13, SET_VER + 1, 219, 0, 13, 0, 0);
-  drawchr_ui_pal(dst, 14, SET_VER + 1, 219, 0, 14, 0, 0);
-  drawchr_ui_pal(dst, 15, SET_VER + 1, 219, 0, 15, 0, 0);
+  drawpal_window(dst, 0, SET_VER + 1, 219, 0, 0, 0, 0);
+  drawpal_window(dst, 1, SET_VER + 1, 219, 0, 1, 0, 0);
+  drawpal_window(dst, 2, SET_VER + 1, 219, 0, 2, 0, 0);
+  drawpal_window(dst, 3, SET_VER + 1, 219, 0, 3, 0, 0);
+  drawpal_window(dst, 4, SET_VER + 1, 219, 0, 4, 0, 0);
+  drawpal_window(dst, 5, SET_VER + 1, 219, 0, 5, 0, 0);
+  drawpal_window(dst, 6, SET_VER + 1, 219, 0, 6, 0, 0);
+  drawpal_window(dst, 7, SET_VER + 1, 219, 0, 7, 0, 0);
+  drawpal_window(dst, 8, SET_VER + 1, 219, 0, 8, 0, 0);
+  drawpal_window(dst, 9, SET_VER + 1, 219, 0, 9, 0, 0);
+  drawpal_window(dst, 10, SET_VER + 1, 219, 0, 10, 0, 0);
+  drawpal_window(dst, 11, SET_VER + 1, 219, 0, 11, 0, 0);
+  drawpal_window(dst, 12, SET_VER + 1, 219, 0, 12, 0, 0);
+  drawpal_window(dst, 13, SET_VER + 1, 219, 0, 13, 0, 0);
+  drawpal_window(dst, 14, SET_VER + 1, 219, 0, 14, 0, 0);
+  drawpal_window(dst, 15, SET_VER + 1, 219, 0, 15, 0, 0);
 
   /* draw numbers 1-4 under palette */
   drawchr_window(dst, brush.pal[0], SET_VER + 2, 49, 2);
@@ -221,7 +161,7 @@ void drawui(Uint32 *dst) {
   drawchr_window(dst, brush.pal[3], SET_VER + 2, 52, 2);
 
   /* draw brush */
-  if (brush.canvas_hover) drawchr_canvas(pixels, brush.x, brush.y, brush.chr, 1); 
+  if (brush.canvas_hover) drawchr_canvas(pixels, brush.x, brush.y, brush.chr, 1);
 }
 
 void redraw(Uint32 *dst) {
@@ -237,33 +177,132 @@ void redraw(Uint32 *dst) {
 			drawchr_canvas(dst, x, y, chrmap[x + y * MAP_HOR], 0);
 
   drawui(dst);
-  
+
 	SDL_UpdateTexture(gTexture, NULL, dst, WIDTH * sizeof(Uint32));
 	SDL_RenderClear(gRenderer);
 	SDL_RenderCopy(gRenderer, gTexture, NULL, NULL);
 	SDL_RenderPresent(gRenderer);
 }
 
-void domouse(SDL_Event* event) {
-  switch(event->type) {
-	case SDL_MOUSEBUTTONUP:
-      if (event->button.button == SDL_BUTTON_RIGHT) brush.right = 0;
-      if (event->button.button == SDL_BUTTON_LEFT) brush.left = 0;
-      break;
-  case SDL_MOUSEBUTTONDOWN:
-      if (event->button.button == SDL_BUTTON_RIGHT) brush.right = 1;
-      if (event->button.button == SDL_BUTTON_LEFT) brush.left = 1;
-  case SDL_MOUSEMOTION:
-    if (event->motion.x > PAD * CHR_SIZE * ZOOM &&
-        event->motion.x < (PAD + SET_HOR) * CHR_SIZE * ZOOM &&
-        event->motion.y > PAD * CHR_SIZE * ZOOM &&
-        event->motion.y < (PAD + SET_VER) * CHR_SIZE * ZOOM) { 
-      /* chr */
-      brush.canvas_hover = 0;
-      brush.x = (event->motion.x / ZOOM - (PAD * CHR_SIZE)) / CHR_SIZE;
-      brush.y = (event->motion.y / ZOOM - (PAD * CHR_SIZE)) / CHR_SIZE;
-      if (brush.left) {
-        brush.chr = (brush.x + brush.y * SET_HOR);
+int save_rect(void) {
+  int w, h;
+  SDL_GetRendererOutputSize(gRenderer, &w, &h);
+  w /= ZOOM;
+  h /= ZOOM;
+  SDL_Surface* whole = SDL_CreateRGBSurfaceFrom(pixels, w, h, 8 * 4, w * 4, 0,0,0,0);
+
+  int part_w = MAP_HOR * CHR_SIZE;
+  int part_h = MAP_VER * CHR_SIZE;
+  int map_x = (PAD + SET_HOR + GUTTER) * CHR_SIZE;
+  int map_y = PAD * CHR_SIZE;
+
+  SDL_Surface* part = SDL_CreateRGBSurface(0, part_w, part_h, 32, 0, 0, 0, 0);
+  SDL_Rect src_rect = {map_x, map_y, part_w, part_h};
+  SDL_Rect dst_rect = {0, 0, part_w, part_h};
+  SDL_BlitSurface(whole, &src_rect, part, &dst_rect);
+  SDL_SaveBMP(part, "nifty.bmp");
+  SDL_FreeSurface(whole);
+  SDL_FreeSurface(part);
+  return 1;
+}
+
+int save_window(void) {
+  #if SDL_BYTEORDER == SDL_BIG_ENDIAN
+    Uint32 rmask = 0xff000000;
+    Uint32 gmask = 0x00ff0000;
+    Uint32 bmask = 0x0000ff00;
+    Uint32 amask = 0x000000ff;
+  #else
+    Uint32 rmask = 0x000000ff;
+    Uint32 gmask = 0x0000ff00;
+    Uint32 bmask = 0x00ff0000;
+    Uint32 amask = 0xff000000;
+  #endif
+
+  int w, h;
+  SDL_GetRendererOutputSize(gRenderer, &w, &h);
+  w /= ZOOM;
+  h /= ZOOM;
+  SDL_Surface *sshot = SDL_CreateRGBSurfaceFrom(pixels, w, h, 8 * 4, w * 4, rmask, gmask, bmask, amask);
+  SDL_SaveBMP(sshot, "screenshot.bmp");
+  SDL_FreeSurface(sshot);
+  return 1;
+  /* 1. SDL_GetWindowSurface(gWindow) == NULL
+        https://wiki.libsdl.org/SDL_GetWindowSurface says:
+        "You may not combine this with 3D or the rendering API on this window."
+     2. NULL parameter in RenderReadPixels, does not seem to work on macOS?
+     3. Gave up using RenderReadPixels entirely.*/
+}
+
+  void setclr(int x, int y, int channel, int pal_index) {
+    chrclr[x * 4 + y * MAP_HOR * 4 + channel] = pal_index;
+  }
+
+  void quit(void) {
+    free(pixels);
+    SDL_DestroyTexture(gTexture);
+    gTexture = NULL;
+    SDL_DestroyRenderer(gRenderer);
+    gRenderer = NULL;
+    SDL_DestroyWindow(gWindow);
+    gWindow = NULL;
+    SDL_Quit();
+    exit(0);
+  }
+
+  void clearmap() {
+    int x, y;
+    for (y = 0; y < MAP_VER; ++y) {
+      for (x = 0; x < MAP_HOR; ++x) {
+        chrmap[x + y * MAP_HOR] = 0;
+      }
+    }
+  }
+
+  void liftchr() {
+     brush.chr = chrmap[brush.x + brush.y * MAP_HOR];
+  }
+
+  void dropchr(int chr) {
+     chrmap[brush.x + brush.y * MAP_HOR] = chr;
+  }
+
+  void liftclr() {
+    int index = brush.x * 4 + brush.y * MAP_HOR * 4;
+    int ch;
+    for (ch = 0; ch < 4; ++ch)
+      brush.pal[ch] = chrclr[index + ch];
+  }
+
+  void dropclr() {
+    int index = brush.x * 4 + brush.y * MAP_HOR * 4;
+    int ch;
+    for (ch = 0; ch < 4; ++ch)
+      chrclr[index + ch] = brush.pal[ch];
+  }
+
+
+
+  void domouse(SDL_Event* event) {
+    switch(event->type) {
+    case SDL_MOUSEBUTTONUP:
+        if (event->button.button == SDL_BUTTON_RIGHT) brush.right = 0;
+        if (event->button.button == SDL_BUTTON_LEFT) brush.left = 0;
+        break;
+    case SDL_MOUSEBUTTONDOWN:
+        if (event->button.button == SDL_BUTTON_RIGHT) brush.right = 1;
+        if (event->button.button == SDL_BUTTON_LEFT) brush.left = 1;
+    case SDL_MOUSEMOTION:
+      if (event->motion.x > PAD * CHR_SIZE * ZOOM &&
+          event->motion.x < (PAD + SET_HOR) * CHR_SIZE * ZOOM &&
+          event->motion.y > PAD * CHR_SIZE * ZOOM &&
+          event->motion.y < (PAD + SET_VER) * CHR_SIZE * ZOOM) {
+        /* chr */
+        brush.canvas_hover = 0;
+        brush.x = (event->motion.x / ZOOM - (PAD * CHR_SIZE)) / CHR_SIZE;
+        brush.y = (event->motion.y / ZOOM - (PAD * CHR_SIZE)) / CHR_SIZE;
+        if (brush.left) {
+          brush.chr = (brush.x + brush.y * SET_HOR);
       }
     } else if (event->motion.x > (PAD + SET_HOR + GUTTER) * CHR_SIZE * ZOOM &&
                event->motion.x < (PAD + SET_HOR + GUTTER + MAP_HOR) * CHR_SIZE * ZOOM &&
@@ -274,7 +313,7 @@ void domouse(SDL_Event* event) {
        brush.x = (event->motion.x / ZOOM - (PAD + SET_HOR + GUTTER) * CHR_SIZE) / CHR_SIZE;
        brush.y = (event->motion.y / ZOOM - PAD * CHR_SIZE) / CHR_SIZE;
        if (brush.left) {
-         dropchr();
+         dropchr(brush.chr);
          dropclr();
        }
        if (brush.right) {
@@ -286,7 +325,7 @@ void domouse(SDL_Event* event) {
                event->motion.y > (PAD + 1 + SET_VER) * CHR_SIZE * ZOOM &&
                event->motion.y < (PAD + 2 + SET_VER) * CHR_SIZE * ZOOM) {
         brush.canvas_hover = 0;
-        int hover_colour = (event->motion.x / ZOOM - PAD * CHR_SIZE) / CHR_SIZE; 
+        int hover_colour = (event->motion.x / ZOOM - PAD * CHR_SIZE) / CHR_SIZE;
         if (brush.lshift || brush.rshift) {
           if (brush.left) brush.pal[2] = hover_colour;
           if (brush.right) brush.pal[3] = hover_colour;
@@ -330,6 +369,9 @@ int init(void) {
 	return 1;
 }
 
+void test() {
+}
+
 int main(int argc, char **argv) {
 	FILE *fp;
 	fp = fopen("spectrum-pi.chr", "r");
@@ -358,7 +400,7 @@ int main(int argc, char **argv) {
 			case SDL_QUIT: quit(); break;
       case SDL_MOUSEBUTTONUP:
       case SDL_MOUSEBUTTONDOWN:
-      case SDL_MOUSEMOTION: 
+      case SDL_MOUSEMOTION:
           domouse(&event);
           redraw(pixels);
           break;
@@ -372,7 +414,7 @@ int main(int argc, char **argv) {
           break;
 				default:
 					break;
-				} 
+				}
         break;
 			case SDL_KEYUP:
 				switch (event.key.keysym.scancode) {
@@ -380,15 +422,21 @@ int main(int argc, char **argv) {
           brush.colour_chrset = !brush.colour_chrset;
           redraw(pixels);
           break;
+        case SDL_SCANCODE_S:
+          save_rect();
+          break;
         case SDL_SCANCODE_LSHIFT:
           brush.lshift = 0;
           break;
         case SDL_SCANCODE_RSHIFT:
           brush.rshift = 0;
           break;
+        case SDL_SCANCODE_T:
+          test();
+          break;
 				default:
 					break;
-				} 
+				}
         break;
       case SDL_WINDOWEVENT:
 				if (event.window.event == SDL_WINDOWEVENT_EXPOSED)
@@ -403,12 +451,18 @@ int main(int argc, char **argv) {
 
 /* TODO
  * DONE switch left/right mouse select.
- * improve region detection in mouse events.
- * clean up tile/colour interaction, there are a bunch of different functions for drawing in the nametable, out of it, with palette, with theme colours, etc.
  * DONE show tile that will be painted when hovering over the canvas
+ * DONE improve region detection in mouse events.
+ * allow resizing
+ * handle when canvas is smaller than charset
+ * clean up tile/colour interaction, there are a bunch of different functions for drawing in the nametable, out of it, with palette, with theme colours, etc.
  * show hover tile with current brush colours
  * highlight selected tile in chrbuf area
  * confirm erase, or make it modifier+key
  * add system char set
  * reduce memory use for clrmap
+ * import char set
+ * export image
+ * export char map (editable)
+ * add character editing mode?
  */
