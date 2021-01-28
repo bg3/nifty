@@ -20,8 +20,8 @@ cc nifty.c -std=c89 -Os -DNDEBUG -g0 -s -Wall -L/usr/local/lib -lSDL2 -o nifty
 * Resizing canvas
 * Some sort of quirky animation or sound
 * Keyboard commands:
-  * Erase
-  * Switch fg/bg colour
+  * ~~Erase~~
+  * ~~Switch fg/bg colour~~
 * ~~Exporting canvas as image~~
 * ~~Preview current tile/colours under mouse in canvas area~~
 * ~~Preview current colours in character set area~~

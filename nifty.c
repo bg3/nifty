@@ -255,6 +255,10 @@ int save_window(void) {
     for (y = 0; y < MAP_VER; ++y) {
       for (x = 0; x < MAP_HOR; ++x) {
         chrmap[x + y * MAP_HOR] = 0;
+        int ch;
+        for (ch = 0; ch < 4; ++ch) {
+          setclr(x, y, ch, 0);
+        }
       }
     }
   }
@@ -348,7 +352,7 @@ int init(void) {
 		SDL_WINDOWPOS_UNDEFINED,
 		WIDTH * ZOOM,
 		HEIGHT * ZOOM,
-		SDL_WINDOW_SHOWN);
+		SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_BORDERLESS);
 	if(gWindow == NULL)
 		return error("Window", SDL_GetError());
 	gRenderer = SDL_CreateRenderer(gWindow, -1, 0);
@@ -371,6 +375,14 @@ int init(void) {
 
 void test() {
 }
+
+int resize_watcher(void* data, SDL_Event* event) {
+  if (event->type == SDL_WINDOWEVENT && event->window.event == SDL_WINDOWEVENT_RESIZED) {
+/*        printf("RESIZE!");*/
+  }
+  return 0;
+}
+
 
 int main(int argc, char **argv) {
 	FILE *fp;
@@ -395,6 +407,7 @@ int main(int argc, char **argv) {
 		if (tick < ticknext)
 			SDL_Delay(ticknext - tick);
 		ticknext = tick + (1000 / FPS) ;
+    SDL_AddEventWatch(resize_watcher, gWindow);
 		while (SDL_PollEvent(&event) != 0) {
 			switch (event.type) {
 			case SDL_QUIT: quit(); break;
@@ -425,6 +438,17 @@ int main(int argc, char **argv) {
         case SDL_SCANCODE_S:
           save_rect();
           break;
+        case SDL_SCANCODE_X:
+        {
+          int tmp = brush.pal[0];
+          brush.pal[0] = brush.pal[1];
+          brush.pal[1] = tmp;
+          break;
+        }
+        case SDL_SCANCODE_N:
+          clearmap();
+          redraw(pixels);
+          break;
         case SDL_SCANCODE_LSHIFT:
           brush.lshift = 0;
           break;
@@ -453,6 +477,12 @@ int main(int argc, char **argv) {
  * DONE switch left/right mouse select.
  * DONE show tile that will be painted when hovering over the canvas
  * DONE improve region detection in mouse events.
+ * fill area
+ *   rect selection
+ *   matching tiles (contiguous/non)
+ *   noncontiguous is the same as replace
+ * undo
+ * select + drag, cut/paste
  * allow resizing
  * handle when canvas is smaller than charset
  * clean up tile/colour interaction, there are a bunch of different functions for drawing in the nametable, out of it, with palette, with theme colours, etc.
